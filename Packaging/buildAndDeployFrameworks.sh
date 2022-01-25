@@ -14,6 +14,7 @@ STABLE_UPLOAD_URL="https://download.videolan.org/cocoapods/unstable/"
 MOBILE_PODSPEC="MobileVLCKit-unstable.podspec"
 TV_PODSPEC="TVVLCKit-unstable.podspec"
 MACOS_PODSPEC="VLCKit.podspec"
+SPM_PACKAGE="Package.swift"
 
 # Note: create-distributable-package script is building VLCKit(s) if not found.
 # Note: by default, VLCKit will be build if no option is passed.
@@ -70,6 +71,7 @@ VLC_HASH=""
 VLCKIT_HASH=""
 DISTRIBUTION_PACKAGE=""
 DISTRIBUTION_PACKAGE_SHA=""
+DISTRIBUTION_PACKAGE_CHECKSUM=""
 TARGET=""
 
 ##################
@@ -143,6 +145,8 @@ getVLCHashes()
 
 renamePackage()
 {
+    local extension=${2:-tar.xz}
+
     if [ "$1" = "-m" ]; then
         TARGET="MobileVLCKit"
     elif [ "$1" = "-t" ]; then
@@ -152,10 +156,10 @@ renamePackage()
     fi
     getVLCHashes
 
-    local packageName="${TARGET}-REPLACEWITHVERSION.tar.xz"
+    local packageName="${TARGET}-REPLACEWITHVERSION.${extension}"
 
     if [ -f $packageName ]; then
-        DISTRIBUTION_PACKAGE="${TARGET}-${VERSION}-${VLCKIT_HASH}-${VLC_HASH}.tar.xz"
+        DISTRIBUTION_PACKAGE="${TARGET}-${VERSION}-${VLCKIT_HASH}-${VLC_HASH}.${extension}"
         mv $packageName "$DISTRIBUTION_PACKAGE"
         log "Info" "Finished renaming package with name: ${DISTRIBUTION_PACKAGE}"
     fi
@@ -186,6 +190,22 @@ bumpPodspec()
     perl -i -pe's#s.version.*#'"${podVersion}"'#g' $1
     perl -i -pe's#:http.*#'"${uploadURL},"'#g' $1
     perl -i -pe's#:sha256.*#'"${podSHA}"'#g' $1
+}
+
+
+getSPMChecksum()
+{
+    DISTRIBUTION_PACKAGE_CHECKSUM=$(swift package compute-checksum "$DISTRIBUTION_PACKAGE" | cut -d " " -f 1)
+    log "Info" "Distribution SPM package checksum: ${DISTRIBUTION_PACKAGE_CHECKSUM}"
+}
+
+bumpSPMPackage()
+{
+    local name=$(printf 'name: "%s"' ${TARGET})
+    local uploadURL=$(printf 'url: "%s"' ${UPLOAD_URL}${DISTRIBUTION_PACKAGE})
+    local checksum=$(printf 'checksum: "%s"' ${DISTRIBUTION_PACKAGE_CHECKSUM})
+
+    perl -i -pe's#'"${name}, url: .*#${name}, ${uploadURL}, ${checksum}"'#g' $1
 }
 
 gitCommit()
@@ -228,6 +248,19 @@ podDeploy()
             log "Error" "Podspec operations failed."
         fi
     spopd #Packaging/podspecs
+}
+
+spmDeploy()
+{
+   log "Info" "Starting SPM operations..."
+   
+    if bumpSPMPackage $SPM_PACKAGE && \
+       swift package dump-package > /dev/null; then
+        log "Info" "SPM operations successfully finished!"
+    else
+        git checkout $CURRENT_PODSPEC
+        log "Error" "SPM operations failed."
+    fi
 }
 
 checkIfExistOnRemote()
@@ -293,6 +326,19 @@ podOperations()
         rm -rf ${TARGET}-binary
     fi
 }
+
+spmOperations()
+{
+    if [ "$TEST_MODE" = "yes" ]; then
+        log "TODO: nothing for now"
+        # startPodTesting
+    else
+        spmDeploy
+        log "Info" "Removing distribution package ${DISTRIBUTION_PACKAGE} and build directory ${TARGET}-binary."
+        rm ${DISTRIBUTION_PACKAGE}
+        rm -rf ${TARGET}-binary
+    fi
+}
 ##################
 # Command Center #
 ##################
@@ -320,11 +366,18 @@ fi
 UPLOAD_URL=${STABLE_UPLOAD_URL}
 
 spushd "$ROOT_DIR"
-    buildMobileVLCKit $options
-    setCurrentPodspec
-    packageBuild $options
-    renamePackage $options
-    getSHA
+   buildMobileVLCKit $options
+#    setCurrentPodspec
+#    packageBuild $options
+#    renamePackage $options
+#    getSHA
+    
+    # Swift package manager - build
+    packageBuild $options+"z"  #change to zip archive
+    renamePackage $options "zip"
+    getSPMChecksum
+    spmOperations
+    
     # Note: Disable uploading and podoperations for now.
     #uploadPackage
     #podOperations
