@@ -145,7 +145,7 @@ getVLCHashes()
 
 renamePackage()
 {
-    local extension=${2:-tar.xz}
+    local extension="zip"
 
     if [ "$1" = "-m" ]; then
         TARGET="MobileVLCKit"
@@ -255,10 +255,11 @@ spmDeploy()
    log "Info" "Starting SPM operations..."
    
     if bumpSPMPackage $SPM_PACKAGE && \
-       swift package dump-package > /dev/null; then
+       swift package dump-package > /dev/null && \
+       gitCommit $SPM_PACKAGE; then
         log "Info" "SPM operations successfully finished!"
     else
-        git checkout $CURRENT_PODSPEC
+        git checkout $SPM_PACKAGE
         log "Error" "SPM operations failed."
     fi
 }
@@ -330,15 +331,12 @@ podOperations()
 spmOperations()
 {
     if [ "$TEST_MODE" = "yes" ]; then
-        log "TODO: nothing for now"
-        # startPodTesting
+        log "TODO SPM: nothing for now"
     else
         spmDeploy
-        log "Info" "Removing distribution package ${DISTRIBUTION_PACKAGE} and build directory ${TARGET}-binary."
-        rm ${DISTRIBUTION_PACKAGE}
-        rm -rf ${TARGET}-binary
     fi
 }
+
 ##################
 # Command Center #
 ##################
@@ -366,19 +364,15 @@ fi
 UPLOAD_URL=${STABLE_UPLOAD_URL}
 
 spushd "$ROOT_DIR"
-   buildMobileVLCKit $options
-#    setCurrentPodspec
-#    packageBuild $options
-#    renamePackage $options
-#    getSHA
-    
-    # Swift package manager - build
-    packageBuild $options+"z"  #change to zip archive
-    renamePackage $options "zip"
+    buildMobileVLCKit $options
+    setCurrentPodspec
+    packageBuild $options+"z" # use zip archive
+    renamePackage $options
+    getSHA
     getSPMChecksum
-    spmOperations
     
     # Note: Disable uploading and podoperations for now.
     #uploadPackage
     #podOperations
+    spmOperations
 spopd #ROOT_DIR
